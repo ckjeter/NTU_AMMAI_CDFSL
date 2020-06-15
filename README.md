@@ -2,6 +2,9 @@
 
 The source code of NTU-AMMAI-CDFSL.
 
+### 06/15 Update
+method: baseline, baseline_plus, cosine
+
 ### 06/04 Update
 
 The RAM usage issue: if your computer doesn't have enough ram for this project, you can first create a json file which contain all the image infomation (name, label etc.) and load the json file instead of all the images. If there is any further question, please let us know.
