@@ -51,7 +51,7 @@ if __name__=='__main__':
     image_size = 224
     optimization = 'Adam'
 
-    if params.method in ['baseline'] :
+    if params.method in ['baseline', 'baseline_plus', 'cosine'] :
 
         if params.dataset == "miniImageNet":
         
@@ -61,7 +61,7 @@ if __name__=='__main__':
         else:
            raise ValueError('Unknown dataset')
 
-        model           = BaselineTrain( model_dict[params.model], params.num_classes)
+        model           = BaselineTrain( model_dict[params.model], params.num_classes, mode=params.method)
 
     elif params.method in ['protonet']:
         n_query = max(1, int(16* params.test_n_way/params.train_n_way)) #if test_n_way is smaller than train_n_way, reduce n_query to keep batch size small

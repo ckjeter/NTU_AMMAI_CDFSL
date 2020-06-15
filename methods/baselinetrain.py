@@ -6,18 +6,22 @@ import torch.nn as nn
 from torch.autograd import Variable
 import numpy as np
 import torch.nn.functional as F
+from meta_test_Baseline import Classifier_plus, CosineMarginProduct
 
 class BaselineTrain(nn.Module):
-    def __init__(self, model_func, num_class, loss_type = 'softmax'):
+    def __init__(self, model_func, num_class, loss_type = 'softmax', mode='baseline'):
         super(BaselineTrain, self).__init__()
         self.feature    = model_func()
-
+        self.mode = mode
         if loss_type == 'softmax':
             self.classifier = nn.Linear(self.feature.final_feat_dim, num_class)
             self.classifier.bias.data.fill_(0)
         elif loss_type == 'dist': #Baseline ++
             self.classifier = backbone.distLinear(self.feature.final_feat_dim, num_class)
-        
+        if mode == 'cosine':
+            self.classifier = CosineMarginProduct(in_feature=self.feature.final_feat_dim, out_feature=num_class)
+        if mode == 'baseline_plus':
+            self.classifier = Classifier_plus(self.feature.final_feat_dim, num_class) ##baseline++
         self.loss_type = loss_type  #'softmax' #'dist'
         self.num_class = num_class
         self.loss_fn = nn.CrossEntropyLoss()
@@ -27,6 +31,8 @@ class BaselineTrain(nn.Module):
         x    = Variable(x.cuda())
         out  = self.feature.forward(x)
         scores  = self.classifier.forward(out)
+        if self.mode == 'cosine':
+            scores = self.classifier.forward(out, mode='inference')
         return scores
 
     def forward_loss(self, x, y):

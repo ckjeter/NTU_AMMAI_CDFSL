@@ -8,6 +8,7 @@ import torch.optim.lr_scheduler as lr_scheduler
 import time
 import os
 import glob
+import ipdb
 from itertools import combinations
 
 import configs
@@ -29,6 +30,41 @@ class Classifier(nn.Module):
     def forward(self, x):
         x = self.fc(x)
         return x
+
+class Classifier_plus(nn.Module):
+    def __init__(self, dim, n_way):
+        super(Classifier_plus, self).__init__()
+        self.w = nn.Parameter(Variable(torch.randn(n_way, dim) / ((dim*n_way)**0.5) ), requires_grad=True)
+
+    def forward(self, x):
+        w_n = self.w / torch.norm(self.w, p=2, dim=1, keepdim=True).clamp(min=1e-12)
+        w_n = w_n.unsqueeze(0).expand(x.size(0), w_n.size(0), w_n.size(1))
+        x = x.unsqueeze(-1)
+        x = x / torch.norm(x, p=2, dim=1, keepdim=True).clamp(min=1e-12)
+        x = torch.bmm(w_n, x).squeeze(-1)
+        return x
+    
+class CosineMarginProduct(nn.Module):
+    def __init__(self, in_feature, out_feature, s=30.0, m=0.35):
+        super(CosineMarginProduct, self).__init__()
+        self.in_feature = in_feature
+        self.out_feature = out_feature
+        self.s = s
+        self.m = m
+        self.weight = nn.Parameter(torch.Tensor(out_feature, in_feature))
+        nn.init.xavier_uniform_(self.weight)
+
+
+    def forward(self, input, label=None, mode='fine_tune'):
+        cosine = F.linear(F.normalize(input), F.normalize(self.weight))
+        if mode == 'inference':
+            return cosine
+        # one_hot = torch.zeros(cosine.size(), device='cuda' if torch.cuda.is_available() else 'cpu')
+        one_hot = torch.zeros_like(cosine)
+        one_hot.scatter_(1, label.view(-1, 1), 1.0)
+
+        output = self.s * (cosine - one_hot * self.m)
+        return output
 
 def meta_test(novel_loader, n_query = 15, pretrained_dataset='miniImageNet', freeze_backbone = False, n_way = 5, n_support = 5): 
     correct = 0
@@ -68,7 +104,12 @@ def meta_test(novel_loader, n_query = 15, pretrained_dataset='miniImageNet', fre
         pretrained_model.load_state_dict(state)
         
         # train a new linear classifier
-        classifier = Classifier(pretrained_model.final_feat_dim, n_way)
+        if params.method == 'baseline':
+            classifier = Classifier(pretrained_model.final_feat_dim, n_way)
+        elif params.method == 'baseline_plus':
+            classifier = Classifier_plus(pretrained_model.final_feat_dim, n_way)
+        else:
+            classifier = CosineMarginProduct(in_feature=pretrained_model.final_feat_dim, out_feature=n_way)
 
         ###############################################################################################
         # split data into support set and query set
@@ -84,7 +125,6 @@ def meta_test(novel_loader, n_query = 15, pretrained_dataset='miniImageNet', fre
 
         x_b_i = x_var[:, n_support:,:,:,:].contiguous().view( n_way* n_query,   *x.size()[2:]) # query set
         x_a_i = x_var[:,:n_support,:,:,:].contiguous().view( n_way* n_support, *x.size()[2:])  # support set
-
         ################################################################################################
         # loss function and optimizer setting
         loss_fn = nn.CrossEntropyLoss().cuda()
@@ -120,9 +160,14 @@ def meta_test(novel_loader, n_query = 15, pretrained_dataset='miniImageNet', fre
                
                 z_batch = x_a_i[selected_id]
                 y_batch = y_a_i[selected_id]
-
+                #ipdb.set_trace()
                 output = pretrained_model(z_batch)
-                output = classifier(output)
+                #ipdb.set_trace()
+                if params.method in ['baseline', 'baseline_plus']:
+                    output = classifier(output)
+                else:
+                    output = classifier(output, label=y_batch)
+
 
                 loss = loss_fn(output, y_batch)
                 loss.backward()
@@ -138,8 +183,11 @@ def meta_test(novel_loader, n_query = 15, pretrained_dataset='miniImageNet', fre
         classifier.eval()
 
         output = pretrained_model(x_b_i.cuda())
-        scores = classifier(output)
-       
+        if params.method in ['baseline', 'baseline++']:
+            scores = classifier(output)
+        else:
+            scores = classifier(output, mode='inference')
+
         y_query = np.repeat(range( n_way ), n_query )
         topk_scores, topk_labels = scores.data.topk(1, 1, True, True)
         topk_ind = topk_labels.cpu().numpy()

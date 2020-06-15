@@ -5,7 +5,7 @@ import math
 import numpy as np
 import torch.nn.functional as F
 from torch.nn.utils.weight_norm import WeightNorm
-
+#hi
 def init_layer(L):
     # Initialization using fan-in
     if isinstance(L, nn.Conv2d):
